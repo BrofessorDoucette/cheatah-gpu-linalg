@@ -5,6 +5,20 @@ between releases. The repo is public at github.com/BrofessorDoucette/cheatah-gpu
 (published as a fresh history at v0.4.0-alpha); it joins the Biome Standard alongside the
 other cheatah extensions.
 
+## v0.4.1-alpha (2026-08-14) — a well-behaved dependency
+
+The Biome Standard's fresh-directory acceptance test consumed this repo through CPM for the
+first time and caught two consumer-context defects, both fixed:
+
+- **The build ends at the consumer surface when fetched as a subproject**: libraries, shader
+  compilation, and `consumer.cmake` build; the test battery, examples, and benchmark tooling
+  (which assume sibling checkouts and a dev toolchain) no longer configure inside a
+  consumer's `_deps` tree — previously `examples/` exploded the consumer's generate step.
+- **`consumer.cmake` exports `CHEATAH_GPU_LINALG_CONSUMER_CXXFLAGS`** — the lane's baked
+  shader-directory define — completing the flat-variable protocol (`_INCLUDES`/`_LIBS`/
+  `_SHADERS`/`_CXXFLAGS`) that lets a non-CMake compile line (purrc under biome) consume
+  this build without knowing any backend detail.
+
 ## v0.4.0-alpha (2026-08-13) — public, packaged, and covered to 100%
 
 The publication release: the repo goes public at
