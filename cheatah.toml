@@ -9,8 +9,8 @@ name = "cheatah-gpu-linalg"
 
 [cheatah]
 # Toolchain version this extension targets (git tag of the cheatah repo). Bump deliberately.
-# v0.4.0-alpha is tested against the 1.10.0-alpha toolchain.
-version = "1.10.0-alpha"
+# v0.4.4-alpha is tested against the 1.11.4-alpha toolchain (Biome Standard 0.6.0-alpha).
+version = "1.11.4-alpha"
 
 [extensions]
 # Built ON cheatah-gpu: its Metal/Vulkan device surface, the software-emulated Metal test
