@@ -5,6 +5,15 @@ between releases. The repo is public at github.com/BrofessorDoucette/cheatah-gpu
 (published as a fresh history at v0.4.0-alpha); it joins the Biome Standard alongside the
 other cheatah extensions.
 
+## v0.4.2-alpha (2026-08-14) — consumer.cmake lands where a consumer looks
+
+One more consumer-context defect from the standard's acceptance test: `consumer.cmake` (and
+the volk archive path it exports) was written to `CMAKE_BINARY_DIR` — the ROOT build tree,
+which is this repo's own build when standalone but the CONSUMER'S root when fetched as a
+subproject, so the per-extension path a consuming toolchain checks never saw it (and two
+extensions would have collided at the root). Both now use `CMAKE_CURRENT_BINARY_DIR`;
+sibling standalone flows are byte-identical (the two directories coincide there).
+
 ## v0.4.1-alpha (2026-08-14) — a well-behaved dependency
 
 The Biome Standard's fresh-directory acceptance test consumed this repo through CPM for the
