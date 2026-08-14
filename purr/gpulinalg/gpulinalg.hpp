@@ -21,6 +21,10 @@
 
 namespace cheatah::gpulinalg {
 
+// The runtime "is there a GPU?" probe (documented in context.hpp) — gate device work on it.
+using cheatah::gpu::linalg::available;
+using cheatah::gpu::linalg::unavailable_reason;
+
 // Container movement + inspection (the sync points, documented in factories.hpp).
 using cheatah::gpu::linalg::to_device;
 using cheatah::gpu::linalg::to_host;

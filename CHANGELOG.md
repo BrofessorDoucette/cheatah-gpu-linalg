@@ -5,6 +5,13 @@ between releases. The repo is public at github.com/BrofessorDoucette/cheatah-gpu
 (published as a fresh history at v0.4.0-alpha); it joins the Biome Standard alongside the
 other cheatah extensions.
 
+## v0.4.4-alpha (2026-08-14) — the purr module gains the probe
+
+The `gpulinalg` purr module now re-exports `available()` and `unavailable_reason()` — the
+cached, never-throwing "is there a GPU?" probe the whole design tells consumers to gate
+device work on, which the module header had simply never surfaced (the acceptance test's
+program was the first purr consumer to ask). Additive only.
+
 ## v0.4.3-alpha (2026-08-14) — the sibling default learns about CPM
 
 Round three of the acceptance test reached this repo's cross-repo include and caught the
