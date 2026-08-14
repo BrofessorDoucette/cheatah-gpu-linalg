@@ -1,0 +1,10 @@
+# name,median_us — regenerate with: bench/gpu_bench_gate.sh update (same machine only)
+BM_matmul_f32_dev/256/real_time,78.72
+BM_matmul_f32_dev/1024/real_time,361.40
+BM_matmul_f32_dev/4096/real_time,14674.61
+BM_matmul_f64_dev/1024/real_time,8690.46
+BM_dot_f32_dev/16777216/real_time,419.70
+BM_sum_f32_dev/16777216/real_time,223.78
+BM_add_f32_dev/16777216/real_time,639.12
+BM_axpy_fused_f32_dev/16777216/real_time,659.53
+BM_dispatch_overhead/real_time,29.50

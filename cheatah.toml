@@ -1,0 +1,19 @@
+# cheatah-gpu-linalg — biome manifest.
+#
+# Marks this repo as a cheatah standard-library extension (biome resolves cheatah-gpu-linalg ->
+# github.com/BrofessorDoucette/cheatah-gpu-linalg). A downstream project runs
+# `biome add cheatah-gpu cheatah-gpu-linalg` and then `import gpulinalg`.
+
+[project]
+name = "cheatah-gpu-linalg"
+
+[cheatah]
+# Toolchain version this extension targets (git tag of the cheatah repo). Bump deliberately.
+# v0.4.0-alpha is tested against the 1.10.0-alpha toolchain.
+version = "1.10.0-alpha"
+
+[extensions]
+# Built ON cheatah-gpu: its Metal/Vulkan device surface, the software-emulated Metal test
+# device, and slangc provisioning. Add cheatah-gpu first — its manifest carries the Vulkan
+# userland system dependencies (install-deps.sh / doctor.sh).
+requires = ["cheatah-gpu"]

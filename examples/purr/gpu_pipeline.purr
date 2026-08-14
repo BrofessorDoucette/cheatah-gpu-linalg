@@ -1,0 +1,55 @@
+# Copyright (c) 2026 BigBrain LLC. MIT-licensed (see LICENSE).
+# Original work; see ACKNOWLEDGMENTS.md for the open-source ideas we build upon.
+# gpu_pipeline.purr — numpy-style array math in cheatah, executed on the GPU.
+#
+# The point: this is ordinary cheatah array code — operators, linalg.dot, reductions — and the
+# ONLY gpu-specific lines are the to_device calls at the top. Everything in between runs as
+# Vulkan compute because the values are device arrays.
+#
+# Run: examples/run_purr_examples.sh
+
+import io
+import math
+import ndarray as nd
+import linalg
+import gpulinalg as gpu
+
+let n = 50000
+
+let xs: list<float> = []
+for i in range(n) {
+    xs.append(0.25 * ((i * 7 + 11) % 16) - 1.0)
+}
+let hx = nd.array(xs)
+
+# Host reference score with ndarray (the CPU path of the same math).
+let hmu = nd.mean(hx)
+let hz = (hx - hmu) * 0.5
+let hscore = linalg.dot(hz, hz)
+
+# The same math on the GPU.
+let dx = gpu.to_device(hx)
+gpu.reset_stats()
+let mu = gpu.mean(dx)
+let z = (dx - mu) * 0.5
+let score = linalg.dot(z, z)
+let ledger = gpu.stats()
+
+io.print("host score:", hscore, " device score:", score)
+io.print("ledger: downloaded", ledger.bytes_downloaded, "bytes in", ledger.dispatches, "dispatches")
+
+let fails = 0
+if math.fabs(score - hscore) > 0.000001 * math.fabs(hscore) {
+    io.print("FAIL: host and device disagree")
+    fails += 1
+}
+if ledger.bytes_downloaded > 32 {
+    io.print("FAIL: more than the reduction readbacks crossed the bus")
+    fails += 1
+}
+
+if fails == 0 {
+    io.print("PASS: gpu_pipeline — cheatah array math, GPU-executed, host-verified")
+} else {
+    io.print("FAIL:", fails, "checks failed")
+}

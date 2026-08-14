@@ -1,0 +1,101 @@
+# Copyright (c) 2026 BigBrain LLC. MIT-licensed (see LICENSE).
+# Original work; see ACKNOWLEDGMENTS.md for the open-source ideas we build upon.
+# gpu_regression.purr — a GPU TRAINING LOOP written in pure cheatah.
+#
+# The same gradient-descent linear regression as examples/linear_regression_gd.cpp, but in the
+# cheatah language: build the data with ndarray, move it up ONCE with gpulinalg.to_device, and
+# from there every linalg call and operator in this file — matmul, conj_transpose, `-`, axpy —
+# runs on the GPU, because the values ARE device arrays and the generated code resolves to the
+# device overloads. The transfer ledger proves the loop never downloads; the loss lives in a
+# device-resident slot and is read back once at the end.
+#
+# Run: examples/run_purr_examples.sh   (compiles with purrc against the Vulkan backend)
+
+import io
+import math
+import ndarray as nd
+import linalg
+import gpulinalg as gpu
+
+let n = 128
+let d = 8
+let epochs = 300
+let lr = 0.01
+
+# Deterministic well-conditioned X and y = X * w_true, built host-side with ndarray.
+# Prime-modulus fill: a period-16 pattern would alias with d = 8 and make X singular (the fit
+# would be perfect but w non-unique); mod 23 keeps the columns independent.
+let xs: list<float> = []
+for i in range(n) {
+    for j in range(d) {
+        let v = 0.25 * (((i * d + j) * 13) % 23) - 1.0
+        if j == i % d {
+            xs.append(v + 8.0)
+        } else {
+            xs.append(v)
+        }
+    }
+}
+let wtrue: list<float> = []
+for j in range(d) {
+    wtrue.append(0.25 * ((j * 13 + 5) % 23) - 1.0)
+}
+let ys: list<float> = []
+for i in range(n) {
+    let acc = 0.0
+    for j in range(d) {
+        acc += xs[i * d + j] * wtrue[j]
+    }
+    ys.append(acc)
+}
+
+let X = nd.reshape(nd.array(xs), [n, d])
+let y = nd.reshape(nd.array(ys), [n, 1])
+let w0 = nd.reshape(nd.array(wtrue), [d, 1]) * 0.0   # a d x 1 of zeros
+
+# Up ONCE; everything after this line is device-resident.
+let dX = gpu.to_device(X)
+let dy = gpu.to_device(y)
+let w = gpu.to_device(w0)
+gpu.reset_stats()
+
+for e in range(epochs) {
+    let r = linalg.matmul(dX, w) - dy                  # device matmul + device operator
+    let g = linalg.matmul(linalg.conj_transpose(dX), r)
+    gpu.axpy(w, -2.0 * lr / n, g, w)                  # fused in-place update, one dispatch
+}
+
+let ledger = gpu.stats()
+io.print("ledger: uploaded", ledger.bytes_uploaded, "downloaded", ledger.bytes_downloaded,
+         "dispatches", ledger.dispatches)
+
+let fails = 0
+if ledger.bytes_downloaded != 0 {
+    io.print("FAIL: the training loop downloaded bytes")
+    fails += 1
+}
+
+# Device-resident loss, read back once (16 bytes total leave the GPU in this whole program).
+let r = linalg.matmul(dX, w) - dy
+let loss_slot = gpu.scalar_slot()
+gpu.sum(loss_slot, r * r)
+let loss = gpu.get(loss_slot, [0])
+io.print("final loss:", loss)
+if loss > 0.01 {
+    io.print("FAIL: loss did not converge")
+    fails += 1
+}
+
+for j in range(d) {
+    let wj = gpu.get(w, [j, 0])
+    if math.fabs(wj - wtrue[j]) > 0.01 {
+        io.print("FAIL: weight", j, "=", wj, "want", wtrue[j])
+        fails += 1
+    }
+}
+
+if fails == 0 {
+    io.print("PASS: gpu_regression — a cheatah training loop that never left the GPU")
+} else {
+    io.print("FAIL:", fails, "checks failed")
+}

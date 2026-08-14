@@ -1,0 +1,89 @@
+# Doxyfile for cheatah-gpu-linalg's public API.
+#
+# Used two ways:
+#   • doxygen Doxyfile                       — emit XML (the parser for future site/hover tooling)
+#   • scripts/doc_coverage.sh                — strict, check-only pass that fails on any undocumented
+#                                              public entity (it appends EXTRACT_ALL=NO + WARN_* here)
+
+#---------------------------------------------------------------------------
+# Project
+#---------------------------------------------------------------------------
+PROJECT_NAME           = "cheatah-gpu-linalg"
+PROJECT_BRIEF          = "GPU-accelerated linear algebra for cheatah — a device backend for stdlib/linalg."
+OUTPUT_DIRECTORY       = docs
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+OUTPUT_LANGUAGE        = English
+MARKDOWN_SUPPORT       = YES
+TOC_INCLUDE_HEADINGS   = 5
+AUTOLINK_SUPPORT       = YES
+TAB_SIZE               = 4
+
+# Custom doc tags — structured, separately styled sections (the cheatah-gpu ALIASES block).
+ALIASES                = "complexity=\xrefitem complexity \"Complexity\" \"Complexity\""
+# Two allocation tags, because GPU code allocates in two distinct places. Use BOTH when a call
+# touches both (e.g. a staging upload): @alloc the host scratch, @gpualloc the device buffer.
+ALIASES               += "alloc=\xrefitem alloc \"Host allocation\" \"Host (CPU) allocation\""
+ALIASES               += "gpualloc=\xrefitem gpualloc \"GPU allocation\" \"Device (GPU) allocation\""
+# Resource-ownership contract: the caller now owns a resource and MUST release it later (and how).
+# Surfaced in comments AND the VS Code hover DB so the delete-contract is impossible to miss.
+ALIASES               += "destroy=\xrefitem destroy \"Lifetime\" \"Lifetime — caller must release\""
+# Test kinds shown per function and linked to their source by the generator.
+ALIASES               += "crtest=\xrefitem crtest \"Compile-run test\" \"Compile-run test\""
+ALIASES               += "systest=\xrefitem systest \"System test\" \"System test\""
+
+#---------------------------------------------------------------------------
+# Build / extraction
+#---------------------------------------------------------------------------
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_PRIVATE        = NO
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = NO
+SORT_MEMBER_DOCS       = NO
+GENERATE_TODOLIST      = NO
+GENERATE_TESTLIST      = YES
+GENERATE_BUGLIST       = NO
+
+#---------------------------------------------------------------------------
+# Warnings
+#---------------------------------------------------------------------------
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+
+#---------------------------------------------------------------------------
+# Input — this library's public headers + the purr-facing module header.
+#---------------------------------------------------------------------------
+INPUT                  = include purr
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.hpp
+RECURSIVE              = YES
+IMPLICIT_DIR_DOCS      = NO
+# Internal implementation helpers (any `detail` namespace) are NOT public API.
+EXCLUDE_SYMBOLS        = *::detail::* *::detail
+
+#---------------------------------------------------------------------------
+# Output: Doxygen is used only as the C++ parser (XML). No HTML/LaTeX, no dot.
+#---------------------------------------------------------------------------
+GENERATE_HTML          = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
+GENERATE_LATEX         = NO
+HAVE_DOT               = NO
+
+#---------------------------------------------------------------------------
+# Preprocessor — leave both backend macros UNDEFINED so context.hpp resolves the way it does off
+# Apple (the Metal default) and kernels.hpp exposes the emulated stand-ins; the Vulkan context is
+# still parsed as its own header. The sibling-repo includes (cheatah / cheatah-gpu) are not on the
+# Doxygen path on purpose: this file documents THIS repo's surface.
+#---------------------------------------------------------------------------
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+SKIP_FUNCTION_MACROS   = YES
+SEARCH_INCLUDES        = YES

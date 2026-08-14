@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# pre-push — block any push to any remote/branch unless the qa_gate passes.
+#
+# Enabled by `git config core.hooksPath .githooks` (run scripts/setup-hooks.sh once, or it is
+# wired automatically by the CMake configure step). Bypass in a genuine emergency with
+# `git push --no-verify` — but that is exactly what this gate exists to discourage.
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+GATE="$REPO_ROOT/scripts/qa.sh"
+
+if [ ! -x "$GATE" ]; then
+    echo "pre-push: scripts/qa.sh missing or not executable — refusing to push." >&2
+    exit 1
+fi
+
+# Private-reference scan on the commit MESSAGES this push would publish. Once a
+# message reaches the remote it cannot be fixed without rewriting history (which
+# would invalidate every release tag), so this is the last chance to catch one.
+SCAN="$REPO_ROOT/scripts/check_no_private_refs.sh"
+if [ -x "$SCAN" ]; then
+    while read -r _local_ref local_sha remote_ref remote_sha; do
+        [ -n "${local_sha:-}" ] || continue
+        [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+        case "${remote_sha:-}" in
+            ""|0000000000000000000000000000000000000000) range="$local_sha" ;;
+            *) range="$remote_sha..$local_sha" ;;
+        esac
+        bash "$SCAN" --range "$range" || exit 1
+    done
+fi
+
+echo "pre-push: running qa_gate before allowing the push…"
+if "$GATE"; then
+    echo "pre-push: qa_gate passed — push allowed."
+    exit 0
+fi
+
+echo "pre-push: qa_gate FAILED — push blocked. Fix the tests (or --no-verify to override)." >&2
+exit 1
