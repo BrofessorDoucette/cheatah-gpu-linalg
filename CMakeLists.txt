@@ -22,7 +22,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ---- Sibling repos this extension consumes ---------------------------------
 set(CHEATAH_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/../cheatah"
     CACHE PATH "cheatah repo (provides stdlib/linalg + stdlib/ndarray headers)")
-set(CHEATAH_GPU_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../cheatah-gpu"
+# When a consumer's CPM fetched BOTH extensions, cheatah-gpu lives at its CPM source dir, not
+# at a sibling path — prefer it (biome adds cheatah-gpu before this repo, so it is defined).
+if(DEFINED cheatah-gpu_SOURCE_DIR)
+    set(_cheatah_gpu_default "${cheatah-gpu_SOURCE_DIR}")
+else()
+    set(_cheatah_gpu_default "${CMAKE_CURRENT_SOURCE_DIR}/../cheatah-gpu")
+endif()
+set(CHEATAH_GPU_DIR "${_cheatah_gpu_default}"
     CACHE PATH "cheatah-gpu repo (vk.*/mtl.* surfaces, gpu.dispatch math, emulated Metal device)")
 
 # metal-cpp: Apple's MIT-licensed header-only C++ interface to Metal. Vendored inside cheatah-gpu by

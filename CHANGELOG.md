@@ -5,6 +5,15 @@ between releases. The repo is public at github.com/BrofessorDoucette/cheatah-gpu
 (published as a fresh history at v0.4.0-alpha); it joins the Biome Standard alongside the
 other cheatah extensions.
 
+## v0.4.3-alpha (2026-08-14) — the sibling default learns about CPM
+
+Round three of the acceptance test reached this repo's cross-repo include and caught the
+last stale assumption: `CHEATAH_GPU_DIR` defaulted to a SIBLING checkout (`../cheatah-gpu`),
+which does not exist inside a consumer's `_deps` tree (CPM names it `cheatah-gpu-src`), so
+the exported include for `gpu/dispatch/dispatch.hpp` pointed at nothing. The default now
+prefers `cheatah-gpu_SOURCE_DIR` when a consumer's CPM defined it (biome fetches cheatah-gpu
+first); sibling checkouts behave exactly as before.
+
 ## v0.4.2-alpha (2026-08-14) — consumer.cmake lands where a consumer looks
 
 One more consumer-context defect from the standard's acceptance test: `consumer.cmake` (and
