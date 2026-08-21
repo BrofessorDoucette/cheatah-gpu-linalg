@@ -52,6 +52,11 @@ fi
 # 4. Documentation coverage: the 100%-Javadoc hard gate --------------------------------------
 bold "Checking documentation coverage (100% Javadoc)…"
 bash scripts/doc_coverage.sh || fail "doc coverage"
+
+# Published benchmark tables must be GENERATED, not typed, and must say when they went stale.
+# Pure text work — it measures nothing — so it belongs beside the other doc gates.
+bold "Checking benchmark-table provenance…"
+bash scripts/bench_table_lint.sh || fail "benchmark tables"
 # Private-reference scan — this repo is private TODAY, but it must be publishable on
 # demand (it joins a Biome Standard when it goes public), so the guard runs here too.
 bash scripts/check_no_private_refs.sh || fail "a private-project reference is in the tree"

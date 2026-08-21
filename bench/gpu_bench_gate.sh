@@ -24,16 +24,36 @@ fail() { printf '\n\033[31m[gpu-bench-gate] FAILED: %s\033[0m\n' "$*"; exit 1; }
 
 [ -x "$BIN" ] || fail "no $BIN — configure with -DCHEATAH_GPU_LINALG_BENCH=ON (build-bench/)"
 
-measure() {  # -> "name,us" lines on stdout
-    "$BIN" --benchmark_filter="$FILTER" --benchmark_min_time=0.15s --benchmark_format=json 2>/dev/null |
+# -> "name,us" lines on stdout, where us really IS a median.
+#
+# This used to run ONE repetition and read `real_time`, while writing a baseline file whose
+# header called the column `median_us`. It was not a median of anything — it was a single
+# sample. Now it takes repetitions and reads the median aggregate Google Benchmark computes,
+# with --benchmark_enable_random_interleaving so the repetitions of the different sizes are
+# scattered through the run rather than measured as consecutive blocks (GPU clocks ramp and
+# throttle over a run, so a block ordering biases whichever size runs last).
+#
+# Aggregate rows arrive named "<case>_median"; the suffix is stripped so the baseline keys
+# stay exactly what they were and an existing baseline file still matches.
+measure() {
+    "$BIN" --benchmark_filter="$FILTER" --benchmark_min_time=0.15s \
+        --benchmark_repetitions=5 --benchmark_enable_random_interleaving=true \
+        --benchmark_report_aggregates_only=true --benchmark_format=json 2>/dev/null |
         python3 -c 'import json, sys
 for b in json.load(sys.stdin)["benchmarks"]:
-    print(b["name"] + "," + format(b["real_time"], ".2f"))'
+    if b.get("aggregate_name") != "median":
+        continue
+    name = b["name"]
+    if name.endswith("_median"):
+        name = name[: -len("_median")]
+    print(name + "," + format(b["real_time"], ".2f"))'
 }
 
 if [ "$MODE" = "update" ]; then
     bold "Measuring a fresh baseline…"
-    { echo "# name,median_us — regenerate with: bench/gpu_bench_gate.sh update (same machine only)";
+    { echo "# name,median_us — median over 5 interleaved repetitions (--benchmark_repetitions=5";
+      echo "# --benchmark_enable_random_interleaving=true). Regenerate with:";
+      echo "#   bench/gpu_bench_gate.sh update      (same machine only — these are machine-specific)";
       measure; } > "$BASE"
     bold "Baseline updated: $BASE"
     exit 0
@@ -52,11 +72,17 @@ while IFS=, read -r name base_us; do
     if [ "$slower" = "1" ]; then
         # CONFIRMATION: re-measure the suspect alone before declaring a regression.
         confirm="$("$BIN" --benchmark_filter="^${name%%/*}" --benchmark_min_time=0.4s \
-                   --benchmark_format=json 2>/dev/null |
+                   --benchmark_repetitions=9 --benchmark_enable_random_interleaving=true \
+                   --benchmark_report_aggregates_only=true --benchmark_format=json 2>/dev/null |
                    python3 -c "
 import json, sys
 for b in json.load(sys.stdin)['benchmarks']:
-    if b['name'] == '$name':
+    if b.get('aggregate_name') != 'median':
+        continue
+    n = b['name']
+    if n.endswith('_median'):
+        n = n[: -len('_median')]
+    if n == '$name':
         print(f\"{b['real_time']:.2f}\")" )"
         [ -n "$confirm" ] && cur_us="$confirm"
         slower="$(python3 -c "print(1 if $cur_us > $base_us*$THRESHOLD and $cur_us-$base_us > $MIN_GAP_US else 0)")"

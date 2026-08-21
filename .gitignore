@@ -7,3 +7,7 @@ compile_commands.json
 build-asan/
 build-bench/
 bench/venv/
+
+# Python bytecode from the bench tooling.
+__pycache__/
+*.pyc

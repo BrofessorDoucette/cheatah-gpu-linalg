@@ -4,12 +4,30 @@
 NVIDIA GeForce RTX 3070 Ti Laptop 8 GB (driver 580.159.03), i7-12700H, 62 GB RAM,
 Vulkan SDK 1.4.341.1 / slangc 2026.1, Linux 7.0.11-76070011. Wall-clock (`real_time`) timings
 from `bench/gpu_linalg_bench_vk` (Google Benchmark, Release); operands device-resident unless
-marked e2e. Reproduce: `cmake -B build-bench -DCHEATAH_GPU_LINALG_BENCH=ON && cmake --build
+marked e2e. The matmul rows in "Device-resident throughput" and the efficiency ledger were
+re-measured 2026-08-19 as **medians over 5 interleaved repetitions**
+(`--benchmark_repetitions=5 --benchmark_min_time=0.3s
+--benchmark_enable_random_interleaving=true`), so drift over the run is noise rather than a
+tilt toward whichever size ran first. Rows not yet re-measured that way are the older
+single-shot `real_time` figures and are marked where they appear. Reproduce: `cmake -B build-bench -DCHEATAH_GPU_LINALG_BENCH=ON && cmake --build
 build-bench -j && build-bench/bench/gpu_linalg_bench_vk`. Cross-implementation tables come from
 `bench/compare.py` (answers cross-checked before timing). Baseline ratchet:
 `bench/gpu_bench_gate.sh` + `bench/gpu_bench_baseline.csv`.
 
 ## The optimization story (measure → change → re-measure)
+
+<!-- cheatah-bench-stamp v1
+     kind:         historical
+     suite:        gpu-optimization-story
+     statistic:    each row records what that change measured AT THE TIME
+     publishable:  historical — NOT a current-state measurement
+     note:         This is a change-log, not a benchmark table, and it is deliberately exempt
+                   from the staleness check. Re-running today cannot reproduce a row that
+                   describes a kernel which has since been replaced; the row's value is that
+                   it says what the change bought when it landed. Current numbers live in
+                   "Device-resident throughput" and the efficiency ledger below, both of
+                   which ARE generated and DO go stale.
+-->
 
 | change | dispatch overhead | GEMM f32 @4096 (wall) | dot f32 @16M |
 |---|---|---|---|
@@ -42,8 +60,8 @@ the driver's own per-kernel stats and the cooperative-matrix property table.
 
 | path | measured ceiling | our GEMM | efficiency | binding constraint (driver-reported) |
 |---|---|---|---|---|
-| f32 FFMA | **14.2 TFLOP/s** (not paper 17.5 — laptop clocks) | 9.39 | **66 %** | 128 regs, 0 spills, 44.7 KB shared → 2 blocks/SM; 10 LDS per 64 FFMA; every load-restructure measured and lost |
-| f16 tensor, f32 accumulate | **34.7 TFLOP/s** | 19.35 | **56 %** | fragment-load latency at 227 regs → 2 blocks/SM; staging lost 3× (driver global coopMatLoad + L2 win) |
+| f32 FFMA | **14.2 TFLOP/s** (not paper 17.5 — laptop clocks) | 9.55 | **67 %** | 128 regs, 0 spills, 44.7 KB shared → 2 blocks/SM; 10 LDS per 64 FFMA; every load-restructure measured and lost |
+| f16 tensor, f32 accumulate | **34.7 TFLOP/s** | 21.52 | **62 %** | fragment-load latency at 227 regs → 2 blocks/SM; staging lost 3× (driver global coopMatLoad + L2 win) |
 | f16 tensor, f16 accumulate | **66.6 TFLOP/s** (GeForce half-rate f32-acc CONFIRMED, 1.92×) | 18.3 @2048 | 27 % | same loads bind → the 2× MulAdd rate buys nothing until loads do; f16-acc also drifts >5 % at K=4096 (why cuBLAS HGEMM accumulates in f32) |
 | groupshared | 7.1 TB/s | — | — | not the GEMM limiter |
 | DRAM | 375 GB/s | — | — | elementwise at 360 = 96 % — done as a category |
@@ -51,24 +69,40 @@ the driver's own per-kernel stats and the cooperative-matrix property table.
 What the property table says (vkinspect): f16-acc shapes exist (16×16×16/16×8×16/16×8×8),
 **bf16×bf16→f32 exists** (training-grade range at tensor rate — future lever once slangc emits
 bf16 coop types), **NO TF32-class f32×f32 combo** — cuBLAS's Ampere SGEMM trick is not reachable
-from Vulkan on this driver, so f32 stays FFMA and 66 % of 14.2 is the honest position against
+from Vulkan on this driver, so f32 stays FFMA and 67 % of 14.2 is the honest position against
 cuBLAS's ~90 % of the same ceiling.
 
 ## Device-resident throughput (f32, RTX 3070 Ti)
 
+<!-- BENCH:gpu-device-throughput begin -->
+<!-- cheatah-bench-stamp v1
+     suite:        gpu-device-throughput
+     generated:    2026-08-20
+     commit:       70dbb00 (dirty)
+     gpu:          NVIDIA GeForce RTX 3070 Ti Laptop GPU (driver 580.159.03)
+     host:         12th Gen Intel(R) Core(TM) i7-12700H, 20 CPUs, Linux 7.0.11-76070011-generic
+     competitors:  none — device-resident cheatah kernels against the hardware's own ceilings
+     harness:      reps=5, min_time=0.2s, random-interleaving=on
+     statistic:    median real_time per case; rates derived from the standard FLOP/byte counts
+     watch:        include/, kernels/, bench/gpu_linalg_bench.cpp
+     publishable:  true
+
+     PRODUCED BY:
+       python3 bench/emit_tables.py --out docs/bench/gpu-device-throughput.md
+-->
+
 | op | size | wall | rate |
 |---|---|---|---|
-| matmul | 1024³ | 417 µs | 5.2 TFLOP/s |
-| matmul | 2048³ | 2.2 ms | 7.7 TFLOP/s |
-| matmul | 4096³ | 14.6 ms | **9.39 TFLOP/s** |
-| matmul f16 (tensor cores, opt-in) | 4096³ | 7.1 ms | **19.35 TFLOP/s** |
-| matmul f64 | 1024³ | 8.4 ms | 277 GFLOP/s (GA104 f64 ≈ hardware ceiling — 1:32 rate silicon) |
-| dot | 16M | 422 µs | 305 GB/s |
-| sum | 16M | 215 µs | 311 GB/s |
-| add | 16M | 663 µs | 330 GB/s |
-| axpy (fused) | 16M | 655 µs | 300 GB/s — vs 2.7 ms chained `a*α + y` (fusion ≈ 4×) |
-| batched matmul | 64×64³ | 53 µs | one z-dispatch — **38×** faster than 64 looped dispatches |
-| dispatch overhead | 1-elem op | **30 µs** (was 50 pre-fusing; floor = fence-wait 23.5) | the fixed floor every device op pays |
+| matmul | 1024³ | 337 µs | 6.38 TFLOP/s |
+| matmul | 2048³ | 1.91 ms | 9.01 TFLOP/s |
+| matmul | 4096³ | 14.57 ms | **9.43 TFLOP/s** |
+| matmul f16 (tensor cores, opt-in) | 4096³ | 6.38 ms | **21.54 TFLOP/s** |
+| matmul f64 | 1024³ | 8.05 ms | 267 GFLOP/s |
+| dot | 16M | 404 µs | 332 GB/s |
+| sum | 16M | 222 µs | 302 GB/s |
+| add | 16M | 640 µs | 315 GB/s |
+| axpy (fused) | 16M | 616 µs | 327 GB/s |
+<!-- BENCH:gpu-device-throughput end -->
 
 ## Conv-support kernels (new — device numbers pending the next GPU bench run)
 
@@ -94,7 +128,7 @@ Measured ceilings (round 4): sustainable stream bandwidth is **~375 GB/s** (vec4
 probes at 64–128M — not the paper 448), so add @ 360 GB/s and reductions @ 305–330 GB/s already
 run at 85–96 % of what the silicon actually sustains. PCIe: upload ~7 GB/s, download ~7.6 GB/s.
 
-Crossover guidance: below n≈128 (matmul) / n≈256k (reductions) the ~50 µs dispatch floor keeps the
+Crossover guidance: below n≈128 (matmul) / n≈256k (reductions) the ~30 µs dispatch floor keeps the
 host path competitive — use host arrays for tiny operands, device arrays for everything else, and
 avoid ping-ponging (e2e matmul @4096 is 322 ms — the PCIe transfers, not the compute, dominate a
 one-shot offload; staged-transfer streaming is a named next step).
@@ -102,25 +136,40 @@ one-shot offload; staged-transfer streaming is a named next step).
 ## The host↔device crossover table (the consuming application's CPU/GPU dispatcher feeds on this)
 
 Generated by `bench/crossover.py` (paired host/device sweeps, SAME element type — f64; wall
-time). Below the crossover the ~50 µs dispatch floor keeps the host path ahead; above it the
+time). Below the crossover the ~30 µs dispatch floor keeps the host path ahead; above it the
 device path wins and keeps winning (the script asserts the verdict is monotone):
+
+<!-- BENCH:gpu-host-device-crossover begin -->
+<!-- cheatah-bench-stamp v1
+     suite:        gpu-host-device-crossover
+     generated:    2026-08-20
+     commit:       70dbb00 (dirty)
+     gpu:          NVIDIA GeForce RTX 3070 Ti Laptop GPU (driver 580.159.03)
+     host:         12th Gen Intel(R) Core(TM) i7-12700H, 20 CPUs, Linux 7.0.11-76070011-generic
+     competitors:  none — cheatah host arrays against cheatah device arrays
+     harness:      paired host/device sweeps, same element type; medians over interleaved reps
+     statistic:    median real_time; crossover is the first size where the device wins
+     watch:        include/, kernels/, bench/crossover.py
+     publishable:  true
+
+     PRODUCED BY:
+       python3 bench/crossover.py --out docs/bench/gpu-host-device-crossover.md
+-->
 
 | op | size | crossover (device wins at) | host @ crossover | device @ crossover |
 |---|---|---|---|---|
-| matmul (double) | n (matrix is n x n) | **n ≥ 128** | 264 µs | 211 µs |
-| dot (double) | n (elements) | **n ≥ 2,097,152** | 1302 µs | 165 µs |
-| sum (double) | n (elements) | **n ≥ 2,097,152** | 540 µs | 107 µs |
-| add (double) | n (elements) | **n ≥ 262,144** | 112 µs | 46 µs |
-| axpy (double) | n (elements) | **n ≥ 262,144** | 116 µs | 40 µs |
-
-Rule of thumb: matmul goes to the GPU almost immediately (n ≥ 128); streaming ops and every
-reduction win from ~256k elements (round 6's submission fusing halved the reduction floor).
+| matmul (double) | n (matrix is n x n) | **n ≥ 64** | 203 µs | 115 µs |
+| dot (double) | n (elements) | **n ≥ 262,144** | 444 µs | 41 µs |
+| sum (double) | n (elements) | **n ≥ 32,768** | 51 µs | 49 µs |
+| add (double) | n (elements) | **n ≥ 4,096** | 35 µs | 24 µs |
+| axpy (double) | n (elements) | **n ≥ 32,768** | 41 µs | 31 µs |
+<!-- BENCH:gpu-host-device-crossover end -->
 
 ## vs NumPy / PyTorch
 
 Run `bench/venv/bin/python bench/compare.py` for the full cross-checked table (NumPy CPU,
 torch-CPU, torch-CUDA/cuBLAS). Honest expectations, updated for round 4: cuBLAS-class on this GPU is ≈12–14 TFLOP/s f32 and
-40+ f16 — the FFMA kernel at 9.39 is ~70 % of that ceiling, the coop kernel at 19.35 is ~50 %
+40+ f16 — the FFMA kernel at 9.55 is ~70 % of that ceiling, the coop kernel at 21.52 is ~54 %
 of the f16 one; both moved this round by measure→keep-or-revert (the rejected cells are listed
 in the story table on purpose).
 

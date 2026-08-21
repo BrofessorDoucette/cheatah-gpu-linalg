@@ -60,7 +60,10 @@ device's `shaderFloat64` feature (NVIDIA/llvmpipe: yes; Intel Xe: f32 only — a
 The full `cheatah::linalg` surface works with `device_array` operands. Three tiers:
 
 - **Device kernels** (real f32/f64 + complex c64/c128, Slang-single-source):
-  `matmul` (register-tiled 64×64-block GEMM, **5.7 TFLOP/s f32 on an RTX 3070 Ti**; batched
+  `matmul` (register-tiled GEMM, **9.55 TFLOP/s f32 on an RTX 3070 Ti Laptop** — 67% of that
+  part's measured 14.2 TFLOP/s FFMA ceiling — plus an opt-in KHR cooperative-matrix
+  (tensor-core) f16-in/f32-accumulate path at **21.5 TFLOP/s**; both medians over 5
+  interleaved repetitions, see [PERFORMANCE.md](PERFORMANCE.md); batched
   `[B,M,K]@[B,K,N]` in one z-dispatch), `outer`, `conj_transpose` (true Hermitian adjoint for
   complex), `kron`, `dot`/`vdot` (conjugating for complex)/`inner`, `trace` — reductions are
   deterministic partial sums with a two-stage tree path above 64k elements (305+ GB/s).
@@ -81,7 +84,8 @@ The full `cheatah::linalg` surface works with `device_array` operands. Three tie
 
 Memory model: `device_array` data lives in DEVICE-LOCAL memory (VRAM) on Vulkan with staged
 transfers; scratch (dims/scalars/partials) and every released buffer recycles through a pooled
-allocator (a dispatch costs ~23 µs, down from ~1.4 ms unpooled).
+allocator (a dispatch costs ~30 µs end to end, down from ~1.4 ms unpooled; 23.5 µs of that
+is the fence wait, which is the floor).
 
 Every op is tested on BOTH backends (`gpu:<op>:vk` / `:mtl`), `scripts/qa.sh` is the full gate
 (both backends + forced-llvmpipe + ASan/UBSan + Valgrind + 100% doc coverage + 100% unit
@@ -89,9 +93,10 @@ coverage + cppcheck + a perf-ratchet report), and
 [PERFORMANCE.md](PERFORMANCE.md) holds the honest numbers + `bench/` the suite
 (`compare.py` cross-checks answers against NumPy/PyTorch before timing anything).
 
-Not yet: cooperative-matrix (tensor-core) GEMM, general broadcasting, true device
-factorizations, streaming e2e transfers, real-Apple validation — see PERFORMANCE.md's named
-next steps.
+Not yet: general broadcasting, true device factorizations, streaming e2e transfers,
+real-Apple validation — see PERFORMANCE.md's named next steps. (Cooperative-matrix
+tensor-core GEMM was on this list long after it shipped; it is listed above, where it
+belongs. No Apple performance number exists or is claimed.)
 
 ## Build
 

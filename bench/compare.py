@@ -25,6 +25,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import stamp
+
 import numpy as np
 
 try:
@@ -279,8 +282,18 @@ def main():
            f"|----|---|---------------|---------------|-------------------|--------------------|")
     table = hdr + "\n" + "\n".join(rows)
     if args.out:
-        Path(args.out).write_text(table + "\n")
-        print(f"wrote {args.out}")
+        # A stamped region body, not a bare table: without `suite:`/`commit:`/`watch:` the
+        # cheatah-side gate cannot tell this table apart from one somebody typed, nor say when
+        # the kernels it measured changed underneath it.
+        st = stamp.build(
+            suite="gpu-vs-numpy-torch",
+            watch="include/, kernels/, bench/compare.py",
+            competitors=f"NumPy, PyTorch (CPU and CUDA/cuBLAS)",
+            harness="cheatah via Google Benchmark medians over interleaved repetitions; "
+                    "NumPy/torch round-robin against it",
+            statistic="median µs per op; (vs) is the rival/cheatah ratio",
+            produced_by=f"python3 bench/compare.py --out {args.out}")
+        stamp.write_region(args.out, st, table)
     return 0
 
 
