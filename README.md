@@ -121,10 +121,10 @@ need real driver matrices). Enforced at 100% lines + functions by `scripts/qa.sh
 <!-- coverage:start -->
 | Metric | neutral surface |
 |--------|-----------------|
-| **Lines** | 100.00% (1315/1315) |
+| **Lines** | 100.00% (1322/1322) |
 | **Functions** | 100.00% (139/139) |
-| Regions | 92.88% |
-| Branches | 79.79% |
+| Regions | 92.80% |
+| Branches | 79.49% |
 <!-- coverage:end -->
 
 ## License
