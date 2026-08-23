@@ -27,6 +27,7 @@
 
 #include "ndarray.hpp"   // cheatah stdlib/ndarray: basic_ndarray + to_string
 
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstring>
@@ -264,7 +265,21 @@ template <ndarray::Field T>
         const auto est = (stop - start) / step;    // reserve is a hint — clamp before the cast
         v.reserve(est < T(1 << 24) ? static_cast<std::size_t>(est) + 1 : std::size_t(1) << 24);
     }
-    for (T x = start; (step > T{}) ? (x < stop) : (x > stop); x += step) v.push_back(x);
+    if constexpr (std::floating_point<T>) {
+        // Integer induction with x = start + i*step — numpy computes arange the same way.
+        // A floating-point loop counter (cert-flp30-c) accumulates rounding error every
+        // pass; the multiply form keeps each element one rounding away from exact. The
+        // bound check per element preserves the exclusive-stop semantics at the boundary.
+        const double span = (static_cast<double>(stop) - static_cast<double>(start)) /
+                            static_cast<double>(step);
+        const std::size_t count = span > 0.0 ? static_cast<std::size_t>(std::ceil(span)) : 0;
+        for (std::size_t i = 0; i < count; ++i) {
+            const T x = start + static_cast<T>(i) * step;
+            if ((step > T{}) ? (x < stop) : (x > stop)) v.push_back(x);
+        }
+    } else {
+        for (T x = start; (step > T{}) ? (x < stop) : (x > stop); x += step) v.push_back(x);
+    }
     return array(v);
 }
 

@@ -20,7 +20,7 @@ fail() { printf '\n\033[31m[gpu-linalg-qa] FAILED: %s\033[0m\n' "$*"; exit 1; }
 
 # 1. Plain build + both-backend tests ---------------------------------------------------------
 bold "Configuring + building (both backends)…"
-cmake -S . -B build -G Ninja >/tmp/gpu_linalg_cfg.log 2>&1 || { tail -20 /tmp/gpu_linalg_cfg.log; fail "configure"; }
+cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/tmp/gpu_linalg_cfg.log 2>&1 || { tail -20 /tmp/gpu_linalg_cfg.log; fail "configure"; }
 cmake --build build -j >/tmp/gpu_linalg_build.log 2>&1 || { tail -30 /tmp/gpu_linalg_build.log; fail "build"; }
 bold "Running every op on both backends…"
 ctest --test-dir build --output-on-failure || fail "tests"
@@ -82,6 +82,36 @@ bold "Unit-test coverage: 100% lines ($lcov_n/$lcov_d) + functions ($fcov_n/$fco
 # 6. cppcheck: performance + security static analysis ----------------------------------------
 bold "Running cppcheck (performance + security)…"
 bash scripts/cppcheck.sh || fail "cppcheck"
+
+# 6b. clang-tidy: the broad check set from the committed .clang-tidy; cert-* always fatal -----
+#     Self-contained ON PURPOSE: this repo must stay publishable, so no sibling-checkout
+#     dependency. The MECHANICS below mirror cheatah/scripts/clang_tidy.sh (the canonical
+#     driver — the one sanctioned duplicate); the POLICY file .clang-tidy is a verbatim copy
+#     of cheatah's, kept honest by deploy/scripts/tidy_fleet.sh. TIDY_WERROR is the per-repo
+#     burn-down ratchet: categories fatal beyond the unconditional cert-* floor.
+#     The allowlist keeps this repo's OWN code: the build also compiles sibling sources
+#     (cheatah stdlib, cheatah-gpu), which are linted in their own repos' gates.
+bold "Running clang-tidy (cert fatal; ratchet: ${TIDY_WERROR:-cert-* only})…"
+command -v clang-tidy >/dev/null 2>&1 || fail "clang-tidy not installed (apt install clang-tidy)"
+command -v run-clang-tidy >/dev/null 2>&1 || fail "run-clang-tidy not installed (ships with clang-tidy)"
+[ -f build/compile_commands.json ] || fail "no compile_commands.json in build/ (the configure above exports it)"
+_tidy_werror="cert-*${TIDY_WERROR:+,$TIDY_WERROR}"
+# Canary first: prove this config CAN fail before trusting a green run — a stage that
+# cannot fail certifies nothing.
+_tidy_tmp="$(mktemp -d)"
+printf '#include <cstdlib>\nint main() { return std::system("ls"); }\n' > "$_tidy_tmp/canary.cpp"
+if clang-tidy --quiet --config-file=.clang-tidy --warnings-as-errors="$_tidy_werror" \
+        "$_tidy_tmp/canary.cpp" -- -std=c++20 >/dev/null 2>&1; then
+    rm -rf "$_tidy_tmp"
+    fail "clang-tidy CANARY passed clean — the config or tool is broken; nothing can be certified"
+fi
+rm -rf "$_tidy_tmp"
+_tidy_src="^$PWD/(tests|examples)/"
+_tidy_hdr="^$PWD/(include|kernels|purr|tests|examples)/"
+run-clang-tidy -p build -quiet -j "$(nproc)" -header-filter "$_tidy_hdr" \
+    -warnings-as-errors "$_tidy_werror" "$_tidy_src" >/tmp/gpu_linalg_tidy.log 2>&1 \
+    || { grep ' error: ' /tmp/gpu_linalg_tidy.log | sort -u | head -30; fail "clang-tidy (full log: /tmp/gpu_linalg_tidy.log)"; }
+bold "clang-tidy: WErrors=$_tidy_werror errors=0 warnings-outstanding=$(grep ' warning: ' /tmp/gpu_linalg_tidy.log | sort -u | grep -c . || true)"
 
 # 7. Performance ratchet (report mode — informative; `bench/gpu_bench_gate.sh gate` is the
 #    enforcing form, run manually since numbers are same-machine) -----------------------------
