@@ -729,11 +729,11 @@ private:
         throw std::runtime_error("cheatah-gpu-linalg vulkan: no host-visible coherent memory");
     }
 
-    /// The SPIR-V bytes for kernel `name`: `<spv dir>/<name>.spv`. Resolution order: the
-    /// `CHEATAH_GPU_LINALG_SPV_DIR` environment variable, the same-named compile definition,
-    /// then this repo's own `build/shaders` (derived from __FILE__ — so a consumer that passes
-    /// NO definitions still finds the kernels of the checkout it compiled against).
-    [[nodiscard]] static std::vector<char> spv_bytes(const std::string& name) {
+    /// The path a kernel name resolves to, WITHOUT its extension — `<shader dir>/<name>` for a
+    /// bare name, the name itself when it is already qualified. See @ref spv_bytes for why both
+    /// forms exist.
+    [[nodiscard]] static std::string resolve(const std::string& name) {
+        if (name.find('/') != std::string::npos) return name;
         const char* env = std::getenv("CHEATAH_GPU_LINALG_SPV_DIR");
 #if defined(CHEATAH_GPU_LINALG_SPV_DIR)
         const std::string dir = env ? env : CHEATAH_GPU_LINALG_SPV_DIR;
@@ -744,7 +744,34 @@ private:
                    "build" / "shaders")
                       .string();
 #endif
-        std::ifstream in(dir + "/" + name + ".spv", std::ios::binary | std::ios::ate);
+        return dir + "/" + name;
+    }
+
+    /// The part of a kernel name after its last '/': what the feature gates below look at, since a
+    /// path carries no information about the kernel's needs.
+    [[nodiscard]] static std::string basename(const std::string& name) {
+        const std::size_t s = name.rfind('/');
+        return s == std::string::npos ? name : name.substr(s + 1);
+    }
+
+    /// The SPIR-V bytes for kernel `name`.
+    ///
+    /// A name is either BARE (`gemm_f32`) or PATH-QUALIFIED (`/opt/app/shaders/irbem_igrf_f32`).
+    /// A bare name resolves against the context's shader directory: the `CHEATAH_GPU_LINALG_SPV_DIR`
+    /// environment variable, the same-named compile definition, then this repo's own `build/shaders`
+    /// (derived from __FILE__ — so a consumer that passes NO definitions still finds the kernels of
+    /// the checkout it compiled against). A qualified name resolves EXACTLY where it says, and
+    /// nothing else consults the environment for it.
+    ///
+    /// The qualified form exists because this context is a process-wide singleton shared by every
+    /// library in the binary, and a consumer with its OWN kernels (cheatah-space, cheatah-plot) had
+    /// no way to address them: names containing '/' were refused, and the only knob was an
+    /// environment variable whose change would have redirected every linalg routine in the same
+    /// process too. cheatah-space worked around that by setenv-ing the variable around each launch
+    /// and restoring it after, and said in its own comment that the clean fix was a directory
+    /// argument. This is that fix, in the one place a name is turned into a path.
+    [[nodiscard]] static std::vector<char> spv_bytes(const std::string& name) {
+        std::ifstream in(resolve(name) + ".spv", std::ios::binary | std::ios::ate);
         if (!in)
             throw std::runtime_error("cheatah-gpu-linalg vulkan: missing SPIR-V for kernel '" +
                                      name + "'");
@@ -759,8 +786,12 @@ private:
 
     /// The compute pipeline for `name`, built from its .spv once and cached. slangc renames each
     /// module's single entry point to "main".
-    VkPipeline pipeline(const std::string& name) {
-        if (auto it = pipelines_.find(name); it != pipelines_.end()) return it->second;
+    VkPipeline pipeline(const std::string& raw) {
+        // Cached by the RESOLVED path, not the given name: a bare `gemm_f32` and a consumer's
+        // `/its/dir/gemm_f32` are different kernels and must not alias one pipeline.
+        const std::string key = resolve(raw);
+        if (auto it = pipelines_.find(key); it != pipelines_.end()) return it->second;
+        const std::string name = basename(raw);
         if (!coop_ok_ && name.find("coop") != std::string::npos)
             throw std::runtime_error("cheatah-gpu-linalg vulkan: device '" + device_name_ +
                                      "' has no VK_KHR_cooperative_matrix — kernel '" + name +
@@ -772,9 +803,7 @@ private:
             throw std::runtime_error("cheatah-gpu-linalg vulkan: device '" + device_name_ +
                                      "' has no shaderFloat64 — kernel '" + name +
                                      "' unavailable");
-        if (std::string_view(name).find('/') != std::string_view::npos)
-            throw std::runtime_error("cheatah-gpu-linalg vulkan: kernel names cannot contain '/'");
-        const std::vector<char> code = spv_bytes(name);
+        const std::vector<char> code = spv_bytes(raw);
         VkShaderModuleCreateInfo mi{};
         mi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         mi.codeSize = code.size();
@@ -795,7 +824,7 @@ private:
         check(vkc::CreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &pipe),
               "CreateComputePipelines");
         vkc::DestroyShaderModule(device_, mod, nullptr);
-        pipelines_.emplace(name, pipe);
+        pipelines_.emplace(key, pipe);
         return pipe;
     }
 

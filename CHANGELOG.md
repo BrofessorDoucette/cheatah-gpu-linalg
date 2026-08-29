@@ -5,6 +5,17 @@ between releases. The repo is public at github.com/BrofessorDoucette/cheatah-gpu
 (published as a fresh history at v0.4.0-alpha); it joins the Biome Standard alongside the
 other cheatah extensions.
 
+## v0.4.5-alpha (2026-08-28) — a kernel name may carry its directory
+
+`dispatch_*` and `pipeline()` accept a DIRECTORY-QUALIFIED kernel name (`<dir>/<entry>`): the
+context resolves it as-is instead of under its own shader directory, and keys its pipeline cache
+by the resolved path. A consumer with kernels of its own (cheatah-plot's rasterizer,
+cheatah-space's field models) now points the shared context at them per call, with no
+environment-variable juggling around every launch and no way for a same-named kernel of another
+consumer to shadow it. Bare names resolve exactly as before (env `CHEATAH_GPU_LINALG_SPV_DIR` /
+`_MSL_DIR`, then the baked define, then the header's own directory). Additive; the `/` ban on
+names is gone.
+
 ## v0.4.4-alpha (2026-08-14) — the purr module gains the probe
 
 The `gpulinalg` purr module now re-exports `available()` and `unavailable_reason()` — the

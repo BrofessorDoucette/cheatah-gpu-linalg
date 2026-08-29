@@ -139,3 +139,45 @@ TEST(Factories, SmallArraySumMeanSingleStage) {
 }
 
 }  // namespace
+
+// ---- a kernel name may carry its directory ----------------------------------------------------
+
+TEST(Factories, PathQualifiedKernelNamesResolve) {
+    // A bare name resolves against the context's shader directory; a name with a '/' resolves
+    // exactly where it says. Both must run the SAME kernel and be cached as DIFFERENT pipelines —
+    // a consumer with its own kernels (cheatah-space, cheatah-plot) shares this one process-wide
+    // context with linalg, and used to have no way to address them except setenv-ing the shader
+    // directory around each launch, which redirected every linalg routine in the process too.
+    namespace det = gl::detail;
+    const std::size_t n = 257;   // not a multiple of the workgroup: the tail lane counts
+    std::vector<float> xs(n);
+    for (std::size_t i = 0; i < n; ++i) xs[i] = float(i) * 0.25f - 3.0f;
+    auto x = gl::device_array<float>::from_host({n}, xs.data());
+    auto out_bare = gl::device_array<float>::uninitialized({n});
+    auto out_qual = gl::device_array<float>::uninitialized({n});
+    const std::uint32_t n32 = static_cast<std::uint32_t>(n);
+    det::Context& c = det::ctx();
+    det::Buffer* dimbuf = det::dims_buffer(&n32, 1);
+
+#if defined(CHEATAH_GPU_LINALG_VULKAN)
+    // The real shader directory, spelled out: the same file the bare name finds, addressed by path.
+    const std::string qualified = std::string(CHEATAH_GPU_LINALG_SPV_DIR) + "/copy_f32";
+#else
+    // The emulated Metal lane never reads source — the directory is a cache key only — so any
+    // prefix proves the resolution logic, and a deliberately absent one proves it is not read.
+    const std::string qualified = "/nonexistent/shaders/copy_f32";
+#endif
+    det::Buffer* bare_bind[3] = {x.buffer(), out_bare.buffer(), dimbuf};
+    c.dispatch_1d("copy_f32", bare_bind, 3, n);
+    det::Buffer* qual_bind[3] = {x.buffer(), out_qual.buffer(), dimbuf};
+    c.dispatch_1d(qualified.c_str(), qual_bind, 3, n);
+
+    std::vector<float> a(n), b(n);
+    out_bare.to_host(a.data());
+    out_qual.to_host(b.data());
+    for (std::size_t i = 0; i < n; ++i) {
+        ASSERT_EQ(a[i], xs[i]) << "bare, " << i;
+        ASSERT_EQ(b[i], xs[i]) << "qualified, " << i;
+    }
+    c.release_buffer(dimbuf);
+}

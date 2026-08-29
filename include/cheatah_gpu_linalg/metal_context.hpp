@@ -249,21 +249,34 @@ private:
     /// The MSL source for kernel `name`. On Apple: the slang-generated `<name>.metal` from the
     /// shader directory (env `CHEATAH_GPU_LINALG_MSL_DIR` beats the baked-in build path). Off
     /// Apple the emulator never reads source — a placeholder is enough to build the library.
-    [[nodiscard]] static std::string msl_source(const std::string& name) {
+    /// A kernel name is BARE or PATH-QUALIFIED, exactly as on the Vulkan lane (see its
+    /// `spv_bytes`): a bare name resolves against the shader directory, a qualified name is used as
+    /// given. The MSL function inside the library is always the BASENAME.
+    [[nodiscard]] static std::string basename(const std::string& name) {
+        const std::size_t s = name.rfind('/');
+        return s == std::string::npos ? name : name.substr(s + 1);
+    }
+    [[nodiscard]] static std::string resolve(const std::string& name) {
+        if (name.find('/') != std::string::npos) return name;
 #if defined(__APPLE__)
         const char* env = std::getenv("CHEATAH_GPU_LINALG_MSL_DIR");
 #  if defined(CHEATAH_GPU_LINALG_MSL_DIR)
         const std::string dir = env ? env : CHEATAH_GPU_LINALG_MSL_DIR;
 #  else
-        // Same resolution as the Vulkan lane's spv_bytes: env, then the checkout's own
-        // build/shaders derived from __FILE__ — a definition-free consumer still resolves.
         const std::string dir =
             env ? std::string(env)
                 : (std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
                    "build" / "shaders")
                       .string();
 #  endif
-        std::ifstream in(dir + "/" + name + ".metal");
+        return dir + "/" + name;
+#else
+        return name;   // the emulator never reads source; the name is only a table key
+#endif
+    }
+    [[nodiscard]] static std::string msl_source(const std::string& name) {
+#if defined(__APPLE__)
+        std::ifstream in(resolve(name) + ".metal");
         if (!in)
             throw std::runtime_error("cheatah-gpu-linalg: missing MSL for kernel '" + name + "'");
         std::ostringstream ss;
@@ -279,7 +292,8 @@ private:
     /// a linalg program reruns the same handful of kernels many times). Each kernel gets its own
     /// small library, compiled from its own slang-generated MSL file.
     mtl::ComputePipelineState* pipeline(const std::string& name) {
-        if (auto it = pipelines_.find(name); it != pipelines_.end()) return it->second;
+        const std::string key = resolve(name);
+        if (auto it = pipelines_.find(key); it != pipelines_.end()) return it->second;
         const std::string source = msl_source(name);
         // A local pool drains the autoreleased NS::Strings; the pipeline itself is owned and
         // cached for the process lifetime.
@@ -293,7 +307,8 @@ private:
             throw std::runtime_error("cheatah-gpu-linalg: MSL for kernel '" + name +
                                      "' did not compile");
         }
-        mtl::String* fname = mtl::String::string(name.c_str(), mtl::UTF8StringEncoding);
+        const std::string fn_name = basename(name);
+        mtl::String* fname = mtl::String::string(fn_name.c_str(), mtl::UTF8StringEncoding);
         mtl::Function* fn = lib->newFunction(fname);
         mtl::ComputePipelineState* pso = dev_->newComputePipelineState(fn, &err);
         fn->release();
@@ -302,7 +317,7 @@ private:
         if (!pso)
             throw std::runtime_error("cheatah-gpu-linalg: no compute pipeline for kernel '" +
                                      name + "'");
-        pipelines_.emplace(name, pso);
+        pipelines_.emplace(key, pso);
         return pso;
     }
 
